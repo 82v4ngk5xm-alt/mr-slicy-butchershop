@@ -27,6 +27,7 @@ export class TitleScene extends Phaser.Scene {
     this.addTitleUi(width, height);
     this.startStaticFlicker();
     this.startScaryChimeLoop();
+    this.updatePlayerCount();
 
     this.events.once("shutdown", () => this.stopScaryChimeLoop());
     this.events.once("destroy", () => this.stopScaryChimeLoop());
@@ -80,8 +81,11 @@ export class TitleScene extends Phaser.Scene {
       repeat: -1,
     });
 
-    const warning = addLabel(this, panelX, height - 44, "He only moves when you move.", 14, "#ffb3b3");
+    const warning = addLabel(this, panelX, height - 64, "He only moves when you move.", 14, "#ffb3b3");
     warning.setDepth(10);
+
+    this.playerCountLabel = addLabel(this, panelX, height - 40, "Players joined: ...", 14, "#b7f0ff");
+    this.playerCountLabel.setDepth(10);
   }
 
   startStaticFlicker() {
@@ -187,6 +191,29 @@ export class TitleScene extends Phaser.Scene {
       osc.start(startAt);
       osc.stop(startAt + duration + 0.26 + index * 0.08);
     });
+  }
+
+  async updatePlayerCount() {
+    if (!this.playerCountLabel) {
+      return;
+    }
+
+    try {
+      const namespace = "mr-slicey-butcher-shop";
+      const key = "startup-joins";
+      const url = `https://api.countapi.xyz/hit/${namespace}/${key}`;
+
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`Count API failed: ${res.status}`);
+      }
+
+      const data = await res.json();
+      const count = data?.value ?? "?";
+      this.playerCountLabel.setText(`Players joined: ${count}`);
+    } catch {
+      this.playerCountLabel.setText("Players joined: unknown");
+    }
   }
 
   stopScaryChimeLoop() {
