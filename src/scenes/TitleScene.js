@@ -198,22 +198,57 @@ export class TitleScene extends Phaser.Scene {
       return;
     }
 
+    const localCount = this.bumpLocalPlayerCount();
+    this.playerCountLabel.setText(`Players joined: ${localCount} (local)`);
+
     try {
       const namespace = "mr-slicey-butcher-shop";
       const key = "startup-joins";
       const url = `https://api.countapi.xyz/hit/${namespace}/${key}`;
 
-      const res = await fetch(url);
-      if (!res.ok) {
-        throw new Error(`Count API failed: ${res.status}`);
-      }
-
-      const data = await res.json();
-      const count = data?.value ?? "?";
+      const data = await this.fetchCountWithRetry(url, 3);
+      const count = data?.value ?? localCount;
       this.playerCountLabel.setText(`Players joined: ${count}`);
     } catch {
-      this.playerCountLabel.setText("Players joined: unknown");
+      this.playerCountLabel.setText(`Players joined: ${localCount} (local)`);
     }
+  }
+
+  async fetchCountWithRetry(url, attempts = 3) {
+    let lastError = null;
+
+    for (let i = 0; i < attempts; i += 1) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+
+        const res = await fetch(url, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
+
+        clearTimeout(timeout);
+
+        if (!res.ok) {
+          throw new Error(`Count API failed: ${res.status}`);
+        }
+
+        return await res.json();
+      } catch (err) {
+        lastError = err;
+        await new Promise((resolve) => setTimeout(resolve, 350 + i * 250));
+      }
+    }
+
+    throw lastError ?? new Error("Count API unavailable");
+  }
+
+  bumpLocalPlayerCount() {
+    const key = "mr-slicey-local-joins";
+    const current = Number(window.localStorage.getItem(key) || "0");
+    const next = current + 1;
+    window.localStorage.setItem(key, String(next));
+    return next;
   }
 
   stopScaryChimeLoop() {
