@@ -6,6 +6,11 @@ export const GAME = {
     sprint: 210,
     hunter: 88,
   },
+  audio: {
+    // Optional: direct .mp3/.ogg URL you have rights to use.
+    // Example: "https://cdn.example.com/sounds/jumpscare.mp3"
+    customJumpscareUrl: "https://youtu.be/PafZIBRDxAU?si=XcRkOXo-NQMh-l_m",
+  },
   colors: {
     wall: 0x2e1f2f,
     floor: 0x453245,

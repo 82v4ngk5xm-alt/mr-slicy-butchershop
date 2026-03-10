@@ -2,7 +2,7 @@ import Phaser from "phaser";
 import { DELIVERIES, GAME } from "../game/constants.js";
 import { runState } from "../game/state.js";
 import { addLabel } from "../game/ui.js";
-import { ensureFaceTexture } from "../game/faceArt.js";
+import { ensureBloodyFaceTexture, ensureFaceTexture } from "../game/faceArt.js";
 import { ensureDeliveryGuyTexture } from "../game/characterArt.js";
 
 const WALL_THICKNESS = 30;
@@ -26,6 +26,7 @@ export class DeliveryScene extends Phaser.Scene {
     this.deliveryIndex = data?.deliveryIndex ?? 0;
     this.delivery = DELIVERIES[this.deliveryIndex];
     this.playBounds = this.getPlayBounds();
+    this.isLevelTwoPlus = this.delivery.id >= 2;
 
     this.hasDelivered = false;
     this.hasKey = false;
@@ -85,6 +86,10 @@ export class DeliveryScene extends Phaser.Scene {
     const floor = this.add.rectangle(centerX, centerY, playWidth - 40, playHeight - 40, GAME.colors.floor);
     floor.setDepth(-2);
 
+    if (this.isLevelTwoPlus) {
+      this.addBloodSplatters();
+    }
+
     this.makeStaticRect(left + 135, top + 165, 80, 40, GAME.colors.crate, this.crates);
     this.makeStaticRect(left + 270, top + 300, 110, 40, GAME.colors.crate, this.crates);
     this.makeStaticRect(right - 150, top + 180, 70, 80, GAME.colors.crate, this.crates);
@@ -115,13 +120,17 @@ export class DeliveryScene extends Phaser.Scene {
     this.player.body.setSize(18, 20, true);
     this.player.body.setCollideWorldBounds(true);
 
-    const attackerTexture = ensureFaceTexture(this);
+    const attackerTexture = this.isLevelTwoPlus
+      ? ensureBloodyFaceTexture(this)
+      : ensureFaceTexture(this);
     this.attacker = this.physics.add.image(right - 52, top + 52, attackerTexture);
     this.attacker.setDisplaySize(36, 36);
     this.attacker.body.setSize(28, 28, true);
     this.attacker.setCollideWorldBounds(true);
 
     this.baseAttackerSpeed = GAME.speed.hunter + this.delivery.hunterSpeedBoost;
+    this.applyAttackerEscalationStyle();
+    this.createAttackerBloodAura();
 
     this.addWorldLabel(this.attacker.x, this.attacker.y - 32, "Old Man");
   }
@@ -238,6 +247,82 @@ export class DeliveryScene extends Phaser.Scene {
     this.physics.add.collider(this.projectiles, this.crates, (projectile) => projectile.destroy());
   }
 
+  applyAttackerEscalationStyle() {
+    if (!this.isLevelTwoPlus) {
+      return;
+    }
+
+    this.attacker.setDisplaySize(44, 44);
+    this.attacker.setTint(0xe7d2cd);
+
+    const pulseAlphaLow = this.delivery.id >= 3 ? 0.68 : 0.78;
+
+    this.tweens.add({
+      targets: this.attacker,
+      alpha: { from: 1, to: pulseAlphaLow },
+      duration: 220,
+      yoyo: true,
+      repeat: -1,
+    });
+
+    if (this.delivery.id >= 3) {
+      this.tweens.add({
+        targets: this.attacker,
+        angle: { from: -4, to: 4 },
+        duration: 95,
+        yoyo: true,
+        repeat: -1,
+      });
+    }
+  }
+
+  createAttackerBloodAura() {
+    if (!this.isLevelTwoPlus) {
+      this.attackerBloodAura = null;
+      return;
+    }
+
+    this.attackerBloodAura = this.add.circle(this.attacker.x, this.attacker.y + 10, 14, 0x8b1118, 0.35);
+    this.attackerBloodAura.setDepth(this.attacker.depth - 1);
+
+    this.tweens.add({
+      targets: this.attackerBloodAura,
+      alpha: { from: 0.2, to: 0.44 },
+      scale: { from: 0.88, to: 1.12 },
+      duration: 180,
+      yoyo: true,
+      repeat: -1,
+    });
+  }
+
+  updateAttackerBloodAura() {
+    if (!this.attackerBloodAura) {
+      return;
+    }
+
+    this.attackerBloodAura.setPosition(this.attacker.x, this.attacker.y + 10);
+  }
+
+  addBloodSplatters() {
+    const { left, right, top, bottom, centerX, centerY } = this.playBounds;
+    const splatters = [
+      { x: left + 84, y: top + 88, r: 16, a: 0.52 },
+      { x: left + 156, y: bottom - 66, r: 12, a: 0.45 },
+      { x: right - 110, y: top + 70, r: 18, a: 0.56 },
+      { x: right - 170, y: centerY + 22, r: 14, a: 0.5 },
+      { x: centerX + 25, y: bottom - 80, r: 20, a: 0.38 },
+      { x: centerX - 120, y: centerY - 44, r: 10, a: 0.34 },
+    ];
+
+    splatters.forEach((entry) => {
+      const blot = this.add.circle(entry.x, entry.y, entry.r, 0x6e1317, entry.a);
+      blot.setDepth(-1);
+
+      const drip = this.add.ellipse(entry.x + 7, entry.y + entry.r + 6, 5, 12, 0x7d171d, entry.a * 0.9);
+      drip.setDepth(-1);
+    });
+  }
+
   startAmbientEvents() {
     if (!this.delivery.hasFakeNoise) return;
 
@@ -262,6 +347,7 @@ export class DeliveryScene extends Phaser.Scene {
 
     this.updateAttackerAi();
     this.clampToPlayBounds(this.attacker);
+    this.updateAttackerBloodAura();
 
     this.handleInteractions();
     this.handleExitReach();

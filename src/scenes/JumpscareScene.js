@@ -1,11 +1,23 @@
 import Phaser from "phaser";
-import { drawDistortedFace } from "../game/faceArt.js";
+import { GAME } from "../game/constants.js";
+import { drawBloodyDistortedFace } from "../game/faceArt.js";
 
 const SCARE_DURATION_MS = 1550;
+const EXTERNAL_JUMPSCARE_KEY = "external-jumpscare";
+const CUSTOM_JUMPSCARE_KEY = "custom-jumpscare";
 
 export class JumpscareScene extends Phaser.Scene {
   constructor() {
     super("jumpscare");
+  }
+
+  preload() {
+    const customUrl = GAME.audio?.customJumpscareUrl?.trim();
+    if (customUrl) {
+      this.load.audio(CUSTOM_JUMPSCARE_KEY, [customUrl]);
+    }
+
+    this.load.audio(EXTERNAL_JUMPSCARE_KEY, ["/audio/fnaf-jumpscare.mp3"]);
   }
 
   create() {
@@ -14,8 +26,13 @@ export class JumpscareScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor("#000000");
 
     this.add.rectangle(width / 2, height / 2, width, height, 0x0a0a0a, 1);
-    drawDistortedFace(this, width / 2, height / 2, { scale: 1, jitter: true, withWarps: true });
-    this.playScreech();
+    drawBloodyDistortedFace(this, width / 2, height / 2, {
+      scale: 1,
+      jitter: true,
+      withWarps: true,
+      baseAlpha: 1,
+    });
+    this.playJumpscareAudio();
 
     this.tweens.add({
       targets: this.cameras.main,
@@ -31,6 +48,25 @@ export class JumpscareScene extends Phaser.Scene {
     });
   }
 
+  playJumpscareAudio() {
+    const hasCustom = this.cache.audio.exists(CUSTOM_JUMPSCARE_KEY);
+    const hasExternal = this.cache.audio.exists(EXTERNAL_JUMPSCARE_KEY);
+
+    this.sound.stopAll();
+
+    if (hasCustom) {
+      this.sound.play(CUSTOM_JUMPSCARE_KEY, { volume: 1 });
+      return;
+    }
+
+    if (hasExternal) {
+      this.sound.play(EXTERNAL_JUMPSCARE_KEY, { volume: 1 });
+      return;
+    }
+
+    this.playScreech();
+  }
+
   playScreech() {
     const ctx = this.sound.context;
     if (!ctx) {
@@ -38,118 +74,155 @@ export class JumpscareScene extends Phaser.Scene {
     }
 
     const now = ctx.currentTime;
-    const duration = 1.05;
+    const duration = 1.35;
 
     const master = ctx.createGain();
     master.gain.setValueAtTime(0.0001, now);
-    master.gain.exponentialRampToValueAtTime(0.95, now + 0.012);
+    master.gain.exponentialRampToValueAtTime(1, now + 0.008);
     master.gain.exponentialRampToValueAtTime(0.0001, now + duration);
     master.connect(ctx.destination);
 
-    const throatBus = ctx.createGain();
-    throatBus.gain.setValueAtTime(0.72, now);
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.setValueAtTime(-22, now);
+    comp.knee.setValueAtTime(14, now);
+    comp.ratio.setValueAtTime(16, now);
+    comp.attack.setValueAtTime(0.002, now);
+    comp.release.setValueAtTime(0.22, now);
+    comp.connect(master);
+
+    const drive = ctx.createWaveShaper();
+    drive.curve = this.createDistortionCurve(240);
+    drive.oversample = "4x";
+    drive.connect(comp);
+
+    const voiceBus = ctx.createGain();
+    voiceBus.gain.setValueAtTime(0.95, now);
+    voiceBus.connect(drive);
+
+    const throatA = ctx.createOscillator();
+    throatA.type = "sawtooth";
+    throatA.frequency.setValueAtTime(520, now);
+    throatA.frequency.exponentialRampToValueAtTime(340, now + 0.24);
+    throatA.frequency.exponentialRampToValueAtTime(230, now + duration);
+
+    const throatB = ctx.createOscillator();
+    throatB.type = "triangle";
+    throatB.frequency.setValueAtTime(760, now);
+    throatB.frequency.exponentialRampToValueAtTime(410, now + 0.35);
+    throatB.frequency.exponentialRampToValueAtTime(260, now + duration);
+
+    const detuneLfo = ctx.createOscillator();
+    detuneLfo.type = "sine";
+    detuneLfo.frequency.setValueAtTime(7.6, now);
+
+    const detuneDepth = ctx.createGain();
+    detuneDepth.gain.setValueAtTime(15, now);
+    detuneDepth.gain.exponentialRampToValueAtTime(6, now + duration);
+    detuneLfo.connect(detuneDepth);
+    detuneDepth.connect(throatA.detune);
+
+    const voiceEnv = ctx.createGain();
+    voiceEnv.gain.setValueAtTime(0.0001, now);
+    voiceEnv.gain.exponentialRampToValueAtTime(0.92, now + 0.012);
+    voiceEnv.gain.exponentialRampToValueAtTime(0.58, now + 0.28);
+    voiceEnv.gain.exponentialRampToValueAtTime(0.18, now + 0.9);
+    voiceEnv.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
     const formantA = ctx.createBiquadFilter();
     formantA.type = "bandpass";
-    formantA.Q.setValueAtTime(7, now);
+    formantA.Q.setValueAtTime(8, now);
     formantA.frequency.setValueAtTime(820, now);
-    formantA.frequency.linearRampToValueAtTime(620, now + 0.26);
-    formantA.frequency.linearRampToValueAtTime(460, now + 0.7);
+    formantA.frequency.linearRampToValueAtTime(660, now + 0.5);
 
     const formantB = ctx.createBiquadFilter();
     formantB.type = "bandpass";
-    formantB.Q.setValueAtTime(9, now);
-    formantB.frequency.setValueAtTime(1450, now);
-    formantB.frequency.linearRampToValueAtTime(980, now + 0.33);
-    formantB.frequency.linearRampToValueAtTime(780, now + 0.78);
+    formantB.Q.setValueAtTime(10, now);
+    formantB.frequency.setValueAtTime(1320, now);
+    formantB.frequency.linearRampToValueAtTime(1080, now + 0.55);
 
-    const growlDistort = ctx.createWaveShaper();
-    growlDistort.curve = this.createDistortionCurve(360);
-    growlDistort.oversample = "4x";
+    throatA.connect(voiceEnv);
+    throatB.connect(voiceEnv);
+    voiceEnv.connect(formantA);
+    voiceEnv.connect(formantB);
+    formantA.connect(voiceBus);
+    formantB.connect(voiceBus);
 
-    throatBus.connect(formantA);
-    throatBus.connect(formantB);
-    formantA.connect(growlDistort);
-    formantB.connect(growlDistort);
-    growlDistort.connect(master);
-
-    const growl1 = ctx.createOscillator();
-    growl1.type = "sawtooth";
-    growl1.frequency.setValueAtTime(260, now);
-    growl1.frequency.exponentialRampToValueAtTime(112, now + duration);
-
-    const growl2 = ctx.createOscillator();
-    growl2.type = "square";
-    growl2.frequency.setValueAtTime(390, now);
-    growl2.frequency.exponentialRampToValueAtTime(148, now + duration * 0.95);
-
-    const growl3 = ctx.createOscillator();
-    growl3.type = "triangle";
-    growl3.frequency.setValueAtTime(520, now);
-    growl3.frequency.exponentialRampToValueAtTime(205, now + duration * 0.7);
-
-    const throatEnv = ctx.createGain();
-    throatEnv.gain.setValueAtTime(0.0001, now);
-    throatEnv.gain.exponentialRampToValueAtTime(0.92, now + 0.018);
-    throatEnv.gain.exponentialRampToValueAtTime(0.44, now + 0.32);
-    throatEnv.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-
-    growl1.connect(throatEnv);
-    growl2.connect(throatEnv);
-    growl3.connect(throatEnv);
-    throatEnv.connect(throatBus);
-
-    const noiseBuffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * duration), ctx.sampleRate);
-    const noiseData = noiseBuffer.getChannelData(0);
-    for (let i = 0; i < noiseData.length; i += 1) {
-      const t = i / noiseData.length;
-      const rasp = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
-      noiseData[i] = (Math.random() * 2 - 1) * rasp;
+    const hitNoiseBuffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.18), ctx.sampleRate);
+    const hitData = hitNoiseBuffer.getChannelData(0);
+    for (let i = 0; i < hitData.length; i += 1) {
+      const t = i / hitData.length;
+      hitData[i] = (Math.random() * 2 - 1) * (1 - t);
     }
 
-    const noise = ctx.createBufferSource();
-    noise.buffer = noiseBuffer;
+    const hitNoise = ctx.createBufferSource();
+    hitNoise.buffer = hitNoiseBuffer;
 
-    const noiseBand = ctx.createBiquadFilter();
-    noiseBand.type = "bandpass";
-    noiseBand.frequency.setValueAtTime(2400, now);
-    noiseBand.frequency.exponentialRampToValueAtTime(1200, now + duration);
-    noiseBand.Q.setValueAtTime(0.8, now);
+    const hitBand = ctx.createBiquadFilter();
+    hitBand.type = "highpass";
+    hitBand.frequency.setValueAtTime(1800, now);
 
-    const noiseGain = ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.0001, now);
-    noiseGain.gain.exponentialRampToValueAtTime(0.84, now + 0.014);
-    noiseGain.gain.exponentialRampToValueAtTime(0.24, now + 0.4);
-    noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    const hitGain = ctx.createGain();
+    hitGain.gain.setValueAtTime(0.0001, now);
+    hitGain.gain.exponentialRampToValueAtTime(0.85, now + 0.004);
+    hitGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
 
-    noise.connect(noiseBand);
-    noiseBand.connect(noiseGain);
-    noiseGain.connect(master);
+    hitNoise.connect(hitBand);
+    hitBand.connect(hitGain);
+    hitGain.connect(comp);
 
-    const plosive = ctx.createOscillator();
-    plosive.type = "sine";
-    plosive.frequency.setValueAtTime(96, now);
-    plosive.frequency.exponentialRampToValueAtTime(42, now + 0.22);
+    const breathBuffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * duration), ctx.sampleRate);
+    const breathData = breathBuffer.getChannelData(0);
+    for (let i = 0; i < breathData.length; i += 1) {
+      const t = i / breathData.length;
+      const env = t < 0.15 ? t / 0.15 : Math.max(0, 1 - (t - 0.15) / 0.85);
+      breathData[i] = (Math.random() * 2 - 1) * env;
+    }
 
-    const plosiveGain = ctx.createGain();
-    plosiveGain.gain.setValueAtTime(0.0001, now);
-    plosiveGain.gain.exponentialRampToValueAtTime(0.55, now + 0.02);
-    plosiveGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
+    const breath = ctx.createBufferSource();
+    breath.buffer = breathBuffer;
 
-    plosive.connect(plosiveGain);
-    plosiveGain.connect(master);
+    const breathBand = ctx.createBiquadFilter();
+    breathBand.type = "bandpass";
+    breathBand.frequency.setValueAtTime(2600, now);
+    breathBand.frequency.exponentialRampToValueAtTime(1400, now + duration);
+    breathBand.Q.setValueAtTime(0.7, now);
 
-    growl1.start(now);
-    growl2.start(now);
-    growl3.start(now);
-    noise.start(now);
-    plosive.start(now);
+    const breathGain = ctx.createGain();
+    breathGain.gain.setValueAtTime(0.0001, now);
+    breathGain.gain.exponentialRampToValueAtTime(0.48, now + 0.02);
+    breathGain.gain.exponentialRampToValueAtTime(0.18, now + 0.55);
+    breathGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
-    growl1.stop(now + duration);
-    growl2.stop(now + duration);
-    growl3.stop(now + duration);
-    noise.stop(now + duration);
-    plosive.stop(now + 0.24);
+    breath.connect(breathBand);
+    breathBand.connect(breathGain);
+    breathGain.connect(drive);
+
+    const ring = ctx.createOscillator();
+    ring.type = "sine";
+    ring.frequency.setValueAtTime(2680, now + 0.24);
+    ring.frequency.exponentialRampToValueAtTime(1880, now + duration);
+
+    const ringGain = ctx.createGain();
+    ringGain.gain.setValueAtTime(0.0001, now);
+    ringGain.gain.exponentialRampToValueAtTime(0.22, now + 0.27);
+    ringGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+    ring.connect(ringGain);
+    ringGain.connect(comp);
+
+    throatA.start(now);
+    throatB.start(now);
+    detuneLfo.start(now);
+    hitNoise.start(now);
+    breath.start(now);
+    ring.start(now + 0.24);
+
+    throatA.stop(now + duration);
+    throatB.stop(now + duration);
+    detuneLfo.stop(now + duration);
+    hitNoise.stop(now + 0.18);
+    breath.stop(now + duration);
+    ring.stop(now + duration);
   }
 
   createDistortionCurve(amount = 200) {
